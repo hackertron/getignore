@@ -284,11 +284,68 @@ func WriteGitignore(template, outputPath string) error {
 	return ioutil.WriteFile(outputPath, []byte(template), 0644)
 }
 
+// printHelp prints the help information
+func printHelp() {
+	fmt.Println("Gitignore Generator - A tool to create .gitignore files for your projects")
+	fmt.Println()
+	fmt.Println("USAGE:")
+	fmt.Println("  gitignore <command> [arguments]")
+	fmt.Println()
+	fmt.Println("COMMANDS:")
+	fmt.Println("  <framework-name>     Generate a .gitignore file for the specified framework")
+	fmt.Println("  list                 List all available templates")
+	fmt.Println("  update               Update templates from GitHub")
+	fmt.Println("  clean                Remove all locally stored templates")
+	fmt.Println("  help, -h, --help     Show this help message")
+	fmt.Println()
+	fmt.Println("EXAMPLES:")
+	fmt.Println("  gitignore Go                 Create a .gitignore file for Go")
+	fmt.Println("  gitignore Python output.txt  Create a Python .gitignore file named output.txt")
+	fmt.Println("  gitignore list               Show all available templates")
+	fmt.Println()
+	fmt.Println("The templates are stored in ~/.gitignore-cli directory.")
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: gitignore <framework-name>")
-		fmt.Println("Or use: gitignore list - to list all available templates")
+		printHelp()
 		os.Exit(1)
+	}
+	
+	command := strings.ToLower(os.Args[1])
+	
+	// Handle help command
+	if command == "help" || command == "-h" || command == "--help" {
+		printHelp()
+		return
+	}
+	
+	// Handle clean command
+	if command == "clean" {
+		templatesDir, err := getTemplatesDir()
+		if err != nil {
+			fmt.Printf("Error getting templates directory: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Print("Are you sure you want to remove all templates? (y/n): ")
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.TrimSpace(strings.ToLower(response))
+		
+		if response != "y" && response != "yes" {
+			fmt.Println("Operation cancelled")
+			return
+		}
+		
+		err = os.RemoveAll(templatesDir)
+		if err != nil {
+			fmt.Printf("Error removing templates: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Println("Templates successfully removed")
+		return
 	}
 	
 	// Initialize and load templates
@@ -298,8 +355,6 @@ func main() {
 		fmt.Printf("Error loading templates: %v\n", err)
 		os.Exit(1)
 	}
-	
-	command := strings.ToLower(os.Args[1])
 	
 	if command == "list" {
 		// List all available templates
