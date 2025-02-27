@@ -3,16 +3,28 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Templates struct to hold all the gitignore templates
 type Templates struct {
 	templates map[string]string
+}
+
+// TemplateFile represents a file from GitHub API
+type TemplateFile struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	DownloadURL string `json:"download_url"`
+	Type        string `json:"type"`
 }
 
 // NewTemplates creates a new Templates instance
@@ -22,77 +34,75 @@ func NewTemplates() *Templates {
 	}
 }
 
-// LoadTemplates loads all the gitignore templates from the provided directory
-func (t *Templates) LoadTemplates() error {
-	// Load templates from the current directory
-	files, err := ioutil.ReadDir(".")
+// getTemplatesDir returns the path to the templates directory
+func getTemplatesDir() (string, error) {
+	// Get user's home directory
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("error reading directory: %v", err)
+		return "", err
 	}
 
-	// Also load from "Global" and "community" directories if they exist
-	dirNames := []string{".", "Global", "community"}
-	
-	for _, dirName := range dirNames {
-		if dirName != "." {
-			// Check if the directory exists
-			if _, err := os.Stat(dirName); os.IsNotExist(err) {
-				continue
-			}
+	// Create .gitignore-cli directory in user's home if it doesn't exist
+	templatesDir := filepath.Join(homeDir, ".gitignore-cli")
+	if _, err := os.Stat(templatesDir); os.IsNotExist(err) {
+		err = os.Mkdir(templatesDir, 0755)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return templatesDir, nil
+}
+
+// LoadTemplates loads all the gitignore templates
+func (t *Templates) LoadTemplates() error {
+	// Get templates directory
+	templatesDir, err := getTemplatesDir()
+	if err != nil {
+		return fmt.Errorf("error getting templates directory: %v", err)
+	}
+
+	// Check if templates directory is empty
+	files, err := ioutil.ReadDir(templatesDir)
+	if err != nil {
+		return fmt.Errorf("error reading templates directory: %v", err)
+	}
+
+	if len(files) == 0 {
+		// No templates found, download them
+		fmt.Println("No templates found. Downloading templates from GitHub...")
+		err = downloadTemplates(templatesDir)
+		if err != nil {
+			return fmt.Errorf("error downloading templates: %v", err)
 		}
 		
-		// Get files from the directory
-		var dirFiles []os.FileInfo
-		if dirName == "." {
-			dirFiles = files
-		} else {
-			dirFiles, err = ioutil.ReadDir(dirName)
+		// Read templates directory again after download
+		files, err = ioutil.ReadDir(templatesDir)
+		if err != nil {
+			return fmt.Errorf("error reading templates directory after download: %v", err)
+		}
+	}
+
+	// Load templates from files
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".gitignore") {
+			templatePath := filepath.Join(templatesDir, file.Name())
+			templateName := strings.TrimSuffix(file.Name(), ".gitignore")
+			t.loadTemplate(templatePath, templateName)
+		} else if file.IsDir() {
+			// Handle subdirectories
+			dirPath := filepath.Join(templatesDir, file.Name())
+			subFiles, err := ioutil.ReadDir(dirPath)
 			if err != nil {
-				continue // Skip if can't read directory
-			}
-		}
-		
-		for _, file := range dirFiles {
-			if file.IsDir() {
-				if dirName == "." && (file.Name() == "Global" || file.Name() == "community") {
-					// We handle these directories separately
-					continue
-				}
-				
-				// Check for subdirectories in community
-				if dirName == "community" || dirName == "Global" {
-					subDirPath := filepath.Join(dirName, file.Name())
-					subFiles, err := ioutil.ReadDir(subDirPath)
-					if err != nil {
-						continue
-					}
-					
-					for _, subFile := range subFiles {
-						if !subFile.IsDir() && strings.HasSuffix(subFile.Name(), ".gitignore") {
-							fullPath := filepath.Join(subDirPath, subFile.Name())
-							templateName := strings.TrimSuffix(subFile.Name(), ".gitignore")
-							qualifiedName := file.Name() + "/" + templateName
-							t.loadTemplate(fullPath, qualifiedName)
-						}
-					}
-				}
-				
 				continue
 			}
 			
-			if strings.HasSuffix(file.Name(), ".gitignore") {
-				var templatePath string
-				if dirName == "." {
-					templatePath = file.Name()
-				} else {
-					templatePath = filepath.Join(dirName, file.Name())
+			for _, subFile := range subFiles {
+				if !subFile.IsDir() && strings.HasSuffix(subFile.Name(), ".gitignore") {
+					templatePath := filepath.Join(dirPath, subFile.Name())
+					templateName := file.Name() + "/" + strings.TrimSuffix(subFile.Name(), ".gitignore")
+					t.loadTemplate(templatePath, templateName)
 				}
-				
-				templateName := strings.TrimSuffix(file.Name(), ".gitignore")
-				if dirName != "." {
-					templateName = dirName + "/" + templateName
-				}
-				t.loadTemplate(templatePath, templateName)
 			}
 		}
 	}
@@ -120,6 +130,127 @@ func (t *Templates) loadTemplate(path, name string) {
 	t.templates[name] = string(content)
 }
 
+// downloadTemplates downloads templates from GitHub
+func downloadTemplates(templatesDir string) error {
+	baseURL := "https://api.github.com/repos/github/gitignore/contents"
+	
+	// Download root templates
+	err := downloadTemplatesFromPath(baseURL, "", templatesDir)
+	if err != nil {
+		return err
+	}
+	
+	// Download Global templates
+	err = downloadTemplatesFromPath(baseURL+"/Global", "Global", templatesDir)
+	if err != nil {
+		return err
+	}
+	
+	// Download community templates
+	return downloadTemplatesFromPath(baseURL+"/community", "community", templatesDir)
+}
+
+// downloadTemplatesFromPath downloads templates from a specific GitHub path
+func downloadTemplatesFromPath(url, prefix, templatesDir string) error {
+	// Get directory listing from GitHub
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download templates, status code: %d", resp.StatusCode)
+	}
+	
+	var files []TemplateFile
+	err = json.NewDecoder(resp.Body).Decode(&files)
+	if err != nil {
+		return err
+	}
+	
+	// Create subdirectory if needed
+	if prefix != "" {
+		subDir := filepath.Join(templatesDir, prefix)
+		if _, err := os.Stat(subDir); os.IsNotExist(err) {
+			err = os.Mkdir(subDir, 0755)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	
+	// Download each file
+	for _, file := range files {
+		if file.Type == "file" && strings.HasSuffix(file.Name, ".gitignore") {
+			var targetPath string
+			if prefix == "" {
+				targetPath = filepath.Join(templatesDir, file.Name)
+			} else {
+				targetPath = filepath.Join(templatesDir, prefix, file.Name)
+			}
+			
+			// Download the file
+			err = downloadFile(file.DownloadURL, targetPath)
+			if err != nil {
+				fmt.Printf("Warning: failed to download %s: %v\n", file.Name, err)
+				continue
+			}
+			
+			// Give some feedback on progress
+			fmt.Printf("Downloaded %s\n", file.Name)
+			
+			// Adding a small delay to avoid hitting rate limits
+			time.Sleep(100 * time.Millisecond)
+		} else if file.Type == "dir" && prefix == "community" {
+			// For community subdirectories, we need to download their contents too
+			subDirURL := url + "/" + file.Name
+			subDirPrefix := prefix + "/" + file.Name
+			
+			// Create subdirectory
+			subDir := filepath.Join(templatesDir, subDirPrefix)
+			if _, err := os.Stat(subDir); os.IsNotExist(err) {
+				err = os.Mkdir(subDir, 0755)
+				if err != nil {
+					return err
+				}
+			}
+			
+			// Download templates from subdirectory
+			err = downloadTemplatesFromPath(subDirURL, subDirPrefix, templatesDir)
+			if err != nil {
+				fmt.Printf("Warning: failed to download from %s: %v\n", subDirURL, err)
+			}
+		}
+	}
+	
+	return nil
+}
+
+// downloadFile downloads a file from URL to the specified local path
+func downloadFile(url, targetPath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download file, status code: %d", resp.StatusCode)
+	}
+	
+	// Create the target file
+	out, err := os.Create(targetPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	
+	// Copy content from response to file
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
 // GetTemplate returns the template for the given framework
 func (t *Templates) GetTemplate(framework string) (string, bool) {
 	// Try exact match
@@ -143,9 +274,7 @@ func (t *Templates) GetTemplate(framework string) (string, bool) {
 func (t *Templates) ListTemplates() []string {
 	var templates []string
 	for name := range t.templates {
-		if !strings.Contains(name, "/") {
-			templates = append(templates, name)
-		}
+		templates = append(templates, name)
 	}
 	return templates
 }
@@ -175,10 +304,60 @@ func main() {
 	if command == "list" {
 		// List all available templates
 		templateList := templates.ListTemplates()
-		fmt.Println("Available templates:")
+		fmt.Printf("Available templates (%d):\n", len(templateList))
+		
+		// Group templates by directory
+		groups := make(map[string][]string)
 		for _, t := range templateList {
-			fmt.Printf("- %s\n", t)
+			if strings.Contains(t, "/") {
+				parts := strings.SplitN(t, "/", 2)
+				groups[parts[0]] = append(groups[parts[0]], parts[1])
+			} else {
+				groups["Main"] = append(groups["Main"], t)
+			}
 		}
+		
+		// Print templates by group
+		for group, templates := range groups {
+			fmt.Printf("\n%s:\n", group)
+			for _, t := range templates {
+				fmt.Printf("  - %s\n", t)
+			}
+		}
+		return
+	}
+	
+	if command == "update" {
+		// Force update templates
+		templatesDir, err := getTemplatesDir()
+		if err != nil {
+			fmt.Printf("Error getting templates directory: %v\n", err)
+			os.Exit(1)
+		}
+		
+		// Remove existing templates
+		err = os.RemoveAll(templatesDir)
+		if err != nil {
+			fmt.Printf("Error removing existing templates: %v\n", err)
+			os.Exit(1)
+		}
+		
+		// Create templates directory again
+		err = os.Mkdir(templatesDir, 0755)
+		if err != nil {
+			fmt.Printf("Error creating templates directory: %v\n", err)
+			os.Exit(1)
+		}
+		
+		// Download templates
+		fmt.Println("Updating templates from GitHub...")
+		err = downloadTemplates(templatesDir)
+		if err != nil {
+			fmt.Printf("Error downloading templates: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Println("Templates updated successfully!")
 		return
 	}
 	
