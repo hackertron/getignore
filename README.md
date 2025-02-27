@@ -44,6 +44,24 @@ To force update templates from GitHub:
 gitignore update
 ```
 
+### Remove templates
+
+To remove all locally stored templates:
+
+```
+gitignore clean
+```
+
+### Get help
+
+To see all available commands and usage information:
+
+```
+gitignore help
+```
+
+You can also use `-h` or `--help` flags.
+
 ### Specify output file
 
 By default, the tool creates a file named `.gitignore` in the current directory. You can specify a different output file as the second argument:
@@ -56,11 +74,12 @@ gitignore Python my-python-gitignore
 
 - Works offline after initial template download
 - Auto-downloads templates from GitHub when first used
-- Simple command-line interface
+- Simple command-line interface with help documentation
 - Supports over 200 different technologies and frameworks
 - Case-insensitive template matching
 - Confirmation before overwriting existing files
 - Templates organized by category for easy browsing
+- Ability to update or remove templates as needed
 
 ## How it Works
 
