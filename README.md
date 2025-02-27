@@ -1,6 +1,6 @@
 # Gitignore Generator
 
-A simple CLI tool to generate `.gitignore` files for your projects based on various technology templates.
+A simple CLI tool to generate `.gitignore` files for your projects based on various technology templates from GitHub's gitignore repository.
 
 ## Installation
 
@@ -36,6 +36,14 @@ To see a list of all available templates:
 gitignore list
 ```
 
+### Update templates
+
+To force update templates from GitHub:
+
+```
+gitignore update
+```
+
 ### Specify output file
 
 By default, the tool creates a file named `.gitignore` in the current directory. You can specify a different output file as the second argument:
@@ -46,18 +54,29 @@ gitignore Python my-python-gitignore
 
 ## Features
 
-- Works completely offline with bundled templates
+- Works offline after initial template download
+- Auto-downloads templates from GitHub when first used
 - Simple command-line interface
 - Supports over 200 different technologies and frameworks
 - Case-insensitive template matching
 - Confirmation before overwriting existing files
+- Templates organized by category for easy browsing
+
+## How it Works
+
+The first time you run the tool, it will:
+1. Create a `.gitignore-cli` directory in your home folder
+2. Download all templates from GitHub's gitignore repository
+3. Store them locally for fast, offline use
+
+All subsequent uses will be instant and offline, using the cached templates.
 
 ## Template Structure
 
 The templates are organized in the following structure:
-- Root directory: Common templates for popular languages and frameworks
-- `Global/`: Templates for various editors, tools, and operating systems
-- `community/`: Specialized templates for other tools and frameworks
+- Main: Common templates for popular languages and frameworks
+- Global: Templates for various editors, tools, and operating systems
+- Community: Specialized templates for other tools and frameworks
 
 ## License
 
