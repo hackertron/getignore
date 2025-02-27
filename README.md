@@ -9,7 +9,27 @@ A simple CLI tool to generate `.gitignore` files for your projects based on vari
    ```
    go build -o gitignore main.go
    ```
-3. (Optional) Add the binary to your PATH
+3. (Optional) Add the binary to your PATH:
+
+   **Linux/macOS:**
+   ```bash
+   # Move the binary to a location in your PATH
+   sudo mv gitignore /usr/local/bin/
+   
+   # Or add the current directory to your PATH in ~/.bashrc or ~/.zshrc
+   echo 'export PATH=$PATH:'$(pwd) >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+   **Windows:**
+   ```cmd
+   # Add the directory to your PATH environment variable
+   setx PATH "%PATH%;%cd%"
+   
+   # Or move the binary to a location that's already in your PATH
+   # For example:
+   # move gitignore.exe C:\Windows\System32\
+   ```
 
 ## Usage
 
@@ -27,6 +47,22 @@ gitignore Go
 ```
 
 This will create a `.gitignore` file in the current directory with Go-specific ignore patterns.
+
+If the template isn't available locally, the tool will download only that specific template instead of downloading all templates.
+
+### Download all templates
+
+To download all templates at once from GitHub:
+
+```
+gitignore download-all
+```
+
+You can also use the `--download-all` flag with any command to download all templates:
+
+```
+gitignore Go --download-all
+```
 
 ### List available templates
 
@@ -72,8 +108,10 @@ gitignore Python my-python-gitignore
 
 ## Features
 
-- Works offline after initial template download
-- Auto-downloads templates from GitHub when first used
+- Efficient template management - only downloads templates as needed
+- On-demand downloading of single templates when requested
+- Option to download all templates at once when desired
+- Works offline after templates are downloaded
 - Simple command-line interface with help documentation
 - Supports over 200 different technologies and frameworks
 - Case-insensitive template matching
@@ -83,12 +121,13 @@ gitignore Python my-python-gitignore
 
 ## How it Works
 
-The first time you run the tool, it will:
-1. Create a `.gitignore-cli` directory in your home folder
-2. Download all templates from GitHub's gitignore repository
-3. Store them locally for fast, offline use
+When you request a template:
+1. The tool checks if it exists in the `.gitignore-cli` directory in your home folder
+2. If available locally, it uses the cached version for instant access
+3. If not available, it downloads just that specific template from GitHub
+4. Templates are stored locally for future use
 
-All subsequent uses will be instant and offline, using the cached templates.
+You can also choose to download all templates at once using the `download-all` command or `--download-all` flag if you prefer to have everything available offline.
 
 ## Template Structure
 
